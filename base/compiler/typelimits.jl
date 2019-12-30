@@ -29,17 +29,20 @@ end
 
 # try to find `type` somewhere in `comparison` type
 # at a minimum nesting depth of `mindepth`
-function is_derived_type(@nospecialize(t), @nospecialize(c), mindepth::Int)
+function is_derived_type(@nospecialize(t), @nospecialize(c), mindepth::Int, depthlimit::Int = 10)
+    if depthlimit <= 0
+        return false
+    end
     if t === c
         return mindepth <= 1
     end
     if isa(c, Union)
         # see if it is one of the elements of the union
-        return is_derived_type(t, c.a, mindepth) || is_derived_type(t, c.b, mindepth)
+        return is_derived_type(t, c.a, mindepth, depthlimit) || is_derived_type(t, c.b, mindepth, depthlimit)
     elseif isa(c, UnionAll)
         # see if it is derived from the body
         # also handle the var here, since this construct bounds the mindepth to the smallest possible value
-        return is_derived_type(t, c.var.ub, mindepth) || is_derived_type(t, c.body, mindepth)
+        return is_derived_type(t, c.var.ub, mindepth, depthlimit) || is_derived_type(t, c.body, mindepth, depthlimit)
     elseif isa(c, DataType)
         if mindepth > 0
             mindepth -= 1
@@ -55,9 +58,10 @@ function is_derived_type(@nospecialize(t), @nospecialize(c), mindepth::Int)
         # see if it was extracted from a type parameter
         cP = c.parameters
         for p in cP
-            is_derived_type(t, p, mindepth) && return true
+            is_derived_type(t, p, mindepth, depthlimit) && return true
         end
-        if isconcretetype(c) && isbitstype(c)
+        # for tuples, parameters === fieldtypes
+        if c.name !== Tuple.name && isconcretetype(c) && isbitstype(c)
             # see if it was extracted from a fieldtype
             # however, only look through types that can be inlined
             # to ensure monotonicity of derivation
@@ -68,7 +72,7 @@ function is_derived_type(@nospecialize(t), @nospecialize(c), mindepth::Int)
             for f in cF
                 # often a parameter is also a field type; avoid searching twice
                 if !contains_is(c.parameters, f)
-                    is_derived_type(t, f, mindepth) && return true
+                    is_derived_type(t, f, mindepth, depthlimit - 1) && return true
                 end
             end
         end
